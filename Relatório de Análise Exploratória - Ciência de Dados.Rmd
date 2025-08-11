@@ -1,0 +1,121 @@
+---
+title: "Relatório de Análise Exploratória: Fatores de Satisfação do Cliente Olist"
+author: "Pedro Coelho"
+date: "10 de agosto de 2025"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+Introdução
+
+Este relatório apresenta uma análise exploratória de dados sobre o dataset de e-commerce da Olist. O objetivo principal foi investigar os dados de vendas, entregas e avaliações para identificar os principais fatores que influenciam a satisfação do cliente. A análise foi conduzida em R, utilizando os pacotes dplyr para manipulação de dados e ggplot2 para visualização.
+
+
+Preparação Inicial
+
+Antes de iniciar a análise, carregamos as bibliotecas necessárias e o nosso conjunto de dados, que já foi previamente limpo e enriquecido em Python. Também garantimos que as colunas de regiao e mes fossem criadas para a análise.
+
+```{r}
+# 1. Carregar as bibliotecas essenciais
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# 2. Carregar o seu dataset (usando o caminho completo para garantir)
+dados <- read.csv("C:/Users/Pedro Coelho/Downloads/OlistGeral/dataset_final_tratado.csv")
+
+# 3. Recriar colunas que faltavam (apenas para garantir a execução no relatório)
+dados <- dados %>%
+  mutate(
+    regiao_cliente = case_when(
+      customer_state %in% c('SP', 'RJ', 'MG', 'ES') ~ 'Sudeste',
+      customer_state %in% c('PR', 'SC', 'RS') ~ 'Sul',
+      customer_state %in% c('DF', 'GO', 'MT', 'MS') ~ 'Centro-Oeste',
+      customer_state %in% c('AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE') ~ 'Nordeste',
+      customer_state %in% c('AC', 'AP', 'AM', 'PA', 'RO', 'RR', 'TO') ~ 'Norte'
+    ),
+    order_purchase_timestamp = as_datetime(order_purchase_timestamp),
+    mes_compra = floor_date(order_purchase_timestamp, "month")
+  )
+```
+
+
+Análises e Visualizações
+
+Gráfico 1: Faturamento por Estado
+
+A primeira análise investiga a distribuição geográfica do faturamento. O gráfico de barras abaixo mostra o valor total de vendas para cada estado, ordenado do maior para o menor.
+Insight: Fica evidente a forte concentração de receita na região Sudeste. O estado de São Paulo (SP) se destaca como o principal mercado, responsável por uma porção significativamente maior do faturamento em comparação com os demais estados.
+
+```{r}
+faturamento_por_estado <- dados %>%
+  group_by(customer_state) %>%
+  summarise(faturamento_total = sum(payment_value, na.rm = TRUE)) %>%
+  arrange(desc(faturamento_total))
+
+ggplot(data = faturamento_por_estado, aes(x = reorder(customer_state, -faturamento_total), y = faturamento_total)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Faturamento Total por Estado", x = "Estado", y = "Faturamento Total (em R$)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+Gráfico 2: Comparação do Tempo de Entrega por Região
+
+Para entender a performance logística, comparamos a distribuição do tempo de entrega entre as cinco grandes regiões do Brasil. O boxplot é ideal para visualizar não apenas a média, mas também a variabilidade e os casos extremos (outliers).
+Insight: As regiões Norte e Nordeste apresentam os maiores desafios logísticos. Elas possuem a maior mediana de tempo de entrega e, mais criticamente, uma quantidade massiva de outliers (pontos em vermelho), representando entregas com atrasos extremos. Isso sugere que a experiência do cliente nessas regiões é menos consistente.
+
+```{r}
+ggplot(data = dados, aes(x = reorder(regiao_cliente, tempo_de_entrega, FUN = median), y = tempo_de_entrega)) +
+  geom_boxplot(fill = "skyblue", outlier.colour = "red", outlier.shape = 1) +
+  labs(title = "Comparação do Tempo de Entrega por Região", x = "Região do Cliente", y = "Tempo de Entrega (em dias)") +
+  theme_minimal()
+```
+
+
+Gráfico 3: Evolução do Número de Pedidos ao Longo do Tempo
+
+Analisar a quantidade de pedidos ao longo do tempo nos permite identificar tendências de crescimento e sazonalidade. O gráfico de linha abaixo mostra a evolução mensal do número de pedidos.
+Insight: O gráfico revela um crescimento expressivo e contínuo no volume de pedidos durante o ano de 2017, culminando em um pico acentuado em novembro de 2017, o que corresponde ao período da Black Friday. Após esse pico, o volume se estabiliza em um patamar mais elevado, indicando a maturação do negócio.
+
+```{r}
+pedidos_por_mes <- dados %>%
+  group_by(mes_compra) %>%
+  summarise(num_pedidos = n_distinct(order_id))
+
+pedidos_por_mes$mes_compra <- as.Date(pedidos_por_mes$mes_compra)
+
+ggplot(data = pedidos_por_mes, aes(x = mes_compra, y = num_pedidos)) +
+  geom_line(color = "darkgreen", linewidth = 1) +
+  geom_point(color = "darkgreen", size = 2) +
+  labs(
+    title = "Evolução do Número de Pedidos por Mês",
+    x = "Mês da Compra",
+    y = "Quantidade de Pedidos"
+  ) +
+  theme_minimal() +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "3 months")
+```
+
+
+Gráfico 4: Relação entre Atraso e Nota da Avaliação
+
+Para testar a hipótese central do projeto, cruzamos os dados de atraso na entrega com a nota de avaliação deixada pelo cliente. Cada ponto no gráfico representa um pedido.
+Insight: A visualização confirma uma forte correlação entre atraso e insatisfação. Notas altas (4 e 5) estão majoritariamente concentradas em entregas no prazo ou adiantadas (valores negativos ou próximos de zero). Em contrapartida, notas baixas (1 e 2) estão claramente associadas a pedidos com atraso, com a "nuvem" de pontos se estendendo para a direita no eixo de dias de atraso.
+
+```{r}
+ggplot(data = dados, aes(x = atraso_na_entrega, y = review_score)) +
+  geom_jitter(alpha = 0.1, color = "purple") +
+  labs(title = "Relação entre Atraso e Nota da Avaliação", subtitle = "Notas mais baixas estão associadas a maiores atrasos na entrega", x = "Dias de Atraso (Valores negativos significam entrega adiantada)", y = "Nota da Avaliação (1 a 5)") +
+  theme_light()
+```
+
+
+Conclusão Final
+
+A análise exploratória dos dados da Olist permitiu extrair insights valiosos sobre a operação da empresa. O principal fator que impacta negativamente a satisfação do cliente é o atraso na entrega. Enquanto o desempenho logístico é satisfatório nas regiões mais centrais do país, há uma clara oportunidade de melhoria nas regiões Norte e Nordeste, onde os tempos de entrega são mais longos e inconsistentes. Ações focadas em otimizar a logística e gerenciar as expectativas de prazo nessas áreas têm o maior potencial para elevar a satisfação geral dos clientes da plataforma.
